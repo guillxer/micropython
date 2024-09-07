@@ -62,13 +62,24 @@ void updateframe() {
 
 #if RP2
 // TODO byte only memcpy, add long copies
+// TODO reverse copies
 void* memcpy(void* dst, const void* src, size_t len) {
 	size_t i;
 	unsigned char* d = (unsigned char*)dst;
 	const unsigned char* s = (unsigned char*)src;
 
-	for (i = 0; i < len; i++) {
+	for (i = 0; i < len; ++i) {
 		d[i] = s[i];
+	}
+	return dst;
+}
+
+void* memset (void *dst, int val, size_t len) {
+	size_t i;
+	unsigned char* d = (unsigned char*)dst;
+
+	for (i = 0; i < len; ++i) {
+		d[i] = val;
 	}
 	return dst;
 }
@@ -91,9 +102,7 @@ void rastermesh(DrawMeshArgs* meshargs);
 
 #if RP2
 
-void clearscenedepth(DrawMeshArgs* meshargs);
-
-static mp_obj_t drawtriangles(
+static mp_obj_t DrawTrianglesTex(
 	mp_obj_fun_bc_t* self,
 	size_t n_args,
 	size_t n_kw,
@@ -142,22 +151,70 @@ static mp_obj_t drawtriangles(
 	meshargs.globalmaterialmap = globalmaterialmap;		// metadata for global materials
 	meshargs.globalmaterialdata = globalmaterialdata; 	// data for global materials
 
-	clearscenedepth(&meshargs);
-
 	rastermesh(&meshargs);
 
 	return mp_const_none;
 }
 
-// This is the entry point and is called when the module is imported
+static mp_obj_t ClearRenderTarget(
+	mp_obj_fun_bc_t* self,
+	size_t n_args,
+	size_t n_kw,
+	mp_obj_t* args) {
+
+	int argindex = 0;
+	mp_buffer_info_t ColorTargetBuffer;
+	mp_get_buffer_raise(args[argindex++], &ColorTargetBuffer, MP_BUFFER_RW);
+	mp_buffer_info_t ColorValueBuffer;
+	mp_get_buffer_raise(args[argindex++], &ColorValueBuffer, MP_BUFFER_RW);
+
+	unsigned short* ColorTarget = (unsigned short*)ColorTargetBuffer.buf;
+	float* ColorValue = (float*)ColorValueBuffer.buf;
+	for (int x = 0; x < width; ++x) {
+		for (int y = 0; y < height; ++y) {
+			unsigned int Red = (unsigned int)(ColorValue[0] * 31.0f) & 0x1F;
+			unsigned int Green = (unsigned int)(ColorValue[1] * 63.0f) & 0x3F;
+			unsigned int Blue = (unsigned int)(ColorValue[2] * 31.0f) & 0x1F;
+			ColorTarget[y * height + x] = (Red << 11) | (Green << 5) | Blue;
+		}
+	}	
+	return mp_const_none;
+}
+
+static mp_obj_t ClearDepthBuffer(
+	mp_obj_fun_bc_t* self,
+	size_t n_args,
+	size_t n_kw,
+	mp_obj_t* args) {
+
+	int argindex = 0;
+	mp_buffer_info_t DepthTargetBuffer;
+	mp_get_buffer_raise(args[argindex++], &DepthTargetBuffer, MP_BUFFER_RW);
+	mp_buffer_info_t DepthValueBuffer;
+	mp_get_buffer_raise(args[argindex++], &DepthValueBuffer, MP_BUFFER_RW);
+	float DepthValue = ((float*)DepthValueBuffer.buf)[0];
+	
+	float* DepthBuffer = (float*)DepthTargetBuffer.buf;
+	for (int x = 0; x < width; ++x) {
+		for (int y = 0; y < height; ++y) {
+			DepthBuffer[x * height + y] = DepthValue; 
+		}
+	}
+	return mp_const_none;
+}
+
+
 mp_obj_t mpy_init(mp_obj_fun_bc_t* self, size_t n_args, size_t n_kw, mp_obj_t* args) {
-	// This must be first, it sets up the globals dict and other things
 	MP_DYNRUNTIME_INIT_ENTRY
-
-		// The tracescene function uses the most general C argument interface	
-		mp_store_global(MP_QSTR_drawtriangles, MP_DYNRUNTIME_MAKE_FUNCTION(drawtriangles));
-
-	// This must be last, it restores the globals dict
+	mp_store_global(
+		MP_QSTR_DrawTrianglesTex, 
+		MP_DYNRUNTIME_MAKE_FUNCTION(DrawTrianglesTex));
+	mp_store_global(
+		MP_QSTR_ClearRenderTarget, 
+		MP_DYNRUNTIME_MAKE_FUNCTION(ClearRenderTarget));
+	mp_store_global(
+		MP_QSTR_ClearDepthBuffer, 
+		MP_DYNRUNTIME_MAKE_FUNCTION(ClearDepthBuffer));
 	MP_DYNRUNTIME_INIT_EXIT
 }
 #endif
@@ -529,15 +586,6 @@ inline unsigned short sampletextureuv(
 
 Texture boundtexture;
 
-void clearscenedepth(DrawMeshArgs* meshargs) {
-	for (int x = 0; x < width; ++x) {
-		for (int y = 0; y < height; ++y) {
-			meshargs->depth[x * height + y] = 100.0f;
-			meshargs->color[x * height + y] = 0x0;
-		}
-	}
-}
-
 #if !RP2
 void present(DrawMeshArgs* meshargs) {
 	for (int x = 0; x < width; ++x) {
@@ -887,7 +935,7 @@ inline Edge3UV clipplanecodeduv(
 // Sutherland Hodgman clipping algorithm
 // there are other algorithms with less comparison that could be used instead
 // this algorithm can work with polygons not just triangles
-#define MAX_CLIPPED_VERTS 16 // probably not actually the actual minimal max triangles that can be generated
+#define MAX_CLIPPED_VERTS 16 // probably not actually the actual max triangles that can be generated
 // Passed verts initialized in camera space
 void triangleclipuv(
 	mat44 projmat,
@@ -963,10 +1011,8 @@ void triangleclipuv(
 	}
 
 	bool hasoutside = false;
-	bool hasinside = false;
-	// transform the remaining triangles to clip space
-	// project to 0 - 1 screen space to allow easy reject or accept
-	// by looking at fixed point fraction bits only
+	//bool hasinside = false;
+	// Transform the remaining triangles to 0-1 clip space
 	for (int vertexi = 0; vertexi < *numpassedverts; ++vertexi) {
 		vec4 vecproj = matmul44(projmat, vec4CS(passedverts[vertexi], 1.0f));
 		vec3 vecscreen = vecdivs(vec3C(vecproj.x, vecproj.y, vecproj.z), vecproj.w);
@@ -986,7 +1032,7 @@ void triangleclipuv(
 		// 
 		if ((vecscreen.x >= 0.0f && vecscreen.y >= 0.0f) &&
 			(vecscreen.x <= 1.0f && vecscreen.y <= 1.0f)) {
-			hasinside = true;
+			//hasinside = true;
 		}
 	}
 
@@ -1025,11 +1071,13 @@ void triangleclipuv(
 		}
 		return;
 	}
+	#if 0
 	// fast path trivial reject
 	if (!hasinside) {
 		*numpassedverts = 0;
 		return;
 	}
+	#endif
 
 	// clip against 4 screen sides
 	for (int planei = 1; planei < NUM_PLANES; ++planei) {

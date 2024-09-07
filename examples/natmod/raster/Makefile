@@ -2,7 +2,7 @@
 MPY_DIR = ../../..
 
 # Name of module
-MOD = thumbyraster
+MOD = ThumbyRaster
 
 # Source files (.c or .py)
 SRC = main.c
