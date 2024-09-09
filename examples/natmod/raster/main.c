@@ -1,6 +1,10 @@
 #include <math.h>
 
+#if defined(MICROPY_ENABLE_DYNRUNTIME)
 #define RP2 1
+#else
+#define RP2 0
+#endif
 
 #if RP2
 #include "py/dynruntime.h"
@@ -74,7 +78,7 @@ void* memcpy(void* dst, const void* src, size_t len) {
 	return dst;
 }
 
-void* memset (void *dst, int val, size_t len) {
+void* memset(void* dst, int val, size_t len) {
 	size_t i;
 	unsigned char* d = (unsigned char*)dst;
 
@@ -86,6 +90,12 @@ void* memset (void *dst, int val, size_t len) {
 #endif
 
 typedef struct {
+	bool AlphaClipEnable;
+	unsigned short AlphaClipColor;
+} BlendState;
+
+typedef struct {
+	BlendState blendstate;
 	unsigned short* color;
 	float* depth;
 	float* cameraposition;
@@ -98,6 +108,20 @@ typedef struct {
 	unsigned short* globalmaterialdata; 	// data for global materials
 } DrawMeshArgs;
 
+unsigned short FloatTo565(float* Color) {
+	unsigned int Red = (unsigned int)(Color[0] * 31.0f) & 0x1F;
+	unsigned int Green = (unsigned int)(Color[1] * 63.0f) & 0x3F;
+	unsigned int Blue = (unsigned int)(Color[2] * 31.0f) & 0x1F;
+	return (Red << 11) | (Green << 5) | Blue;
+}
+
+BlendState GetBlendState(float* StateArray) {
+	BlendState State;
+	State.AlphaClipEnable = StateArray[0] != 0;
+	State.AlphaClipColor = FloatTo565(&StateArray[1]);
+	return State;
+}
+
 void rastermesh(DrawMeshArgs* meshargs);
 
 #if RP2
@@ -109,6 +133,8 @@ static mp_obj_t DrawTrianglesTex(
 	mp_obj_t* args) {
 
 	int argindex = 0;
+	mp_buffer_info_t blendstatebuffer;
+	mp_get_buffer_raise(args[argindex++], &blendstatebuffer, MP_BUFFER_RW);
 	mp_buffer_info_t colorbuffer;
 	mp_get_buffer_raise(args[argindex++], &colorbuffer, MP_BUFFER_RW);
 	mp_buffer_info_t depthbuffer;
@@ -129,6 +155,7 @@ static mp_obj_t DrawTrianglesTex(
 	mp_buffer_info_t globalmaterialdatabuffer;
 	mp_get_buffer_raise(args[argindex++], &globalmaterialdatabuffer, MP_BUFFER_RW);
 
+	BlendState blendstate = GetBlendState((float*)blendstatebuffer.buf);
 	unsigned short* color = (unsigned short*)colorbuffer.buf;
 	float* depth = (float*)depthbuffer.buf;
 	float* cameraposition = (float*)camerapositionbuffer.buf;
@@ -140,6 +167,7 @@ static mp_obj_t DrawTrianglesTex(
 	unsigned short* globalmaterialdata = (unsigned short*)globalmaterialdatabuffer.buf;
 
 	DrawMeshArgs meshargs;
+	meshargs.blendstate = blendstate;
 	meshargs.color = color;
 	meshargs.depth = depth;
 	meshargs.cameraposition = cameraposition;
@@ -177,7 +205,7 @@ static mp_obj_t ClearRenderTarget(
 			unsigned int Blue = (unsigned int)(ColorValue[2] * 31.0f) & 0x1F;
 			ColorTarget[y * height + x] = (Red << 11) | (Green << 5) | Blue;
 		}
-	}	
+	}
 	return mp_const_none;
 }
 
@@ -193,11 +221,11 @@ static mp_obj_t ClearDepthBuffer(
 	mp_buffer_info_t DepthValueBuffer;
 	mp_get_buffer_raise(args[argindex++], &DepthValueBuffer, MP_BUFFER_RW);
 	float DepthValue = ((float*)DepthValueBuffer.buf)[0];
-	
+
 	float* DepthBuffer = (float*)DepthTargetBuffer.buf;
 	for (int x = 0; x < width; ++x) {
 		for (int y = 0; y < height; ++y) {
-			DepthBuffer[x * height + y] = DepthValue; 
+			DepthBuffer[x * height + y] = DepthValue;
 		}
 	}
 	return mp_const_none;
@@ -206,14 +234,14 @@ static mp_obj_t ClearDepthBuffer(
 
 mp_obj_t mpy_init(mp_obj_fun_bc_t* self, size_t n_args, size_t n_kw, mp_obj_t* args) {
 	MP_DYNRUNTIME_INIT_ENTRY
+		mp_store_global(
+			MP_QSTR_DrawTrianglesTex,
+			MP_DYNRUNTIME_MAKE_FUNCTION(DrawTrianglesTex));
 	mp_store_global(
-		MP_QSTR_DrawTrianglesTex, 
-		MP_DYNRUNTIME_MAKE_FUNCTION(DrawTrianglesTex));
-	mp_store_global(
-		MP_QSTR_ClearRenderTarget, 
+		MP_QSTR_ClearRenderTarget,
 		MP_DYNRUNTIME_MAKE_FUNCTION(ClearRenderTarget));
 	mp_store_global(
-		MP_QSTR_ClearDepthBuffer, 
+		MP_QSTR_ClearDepthBuffer,
 		MP_DYNRUNTIME_MAKE_FUNCTION(ClearDepthBuffer));
 	MP_DYNRUNTIME_INIT_EXIT
 }
@@ -373,6 +401,10 @@ vec2 vecdivs2(vec2 a, float b) {
 	out.y = a.y / b;
 	return out;
 }
+float vecmag2(vec2 a)
+{
+	return sqrtf(a.x * a.x + a.y * a.y);
+}
 
 typedef struct {
 	float x, y, z, w;
@@ -435,7 +467,11 @@ vec4 matmul44(mat44 mat, vec4 vec) {
 	return vecout;
 }
 
-
+void swapi(int* a, int* b) {
+	int temp = *a;
+	*a = *b;
+	*b = temp;
+}
 void swap(float* a, float* b) {
 	float temp = *a;
 	*a = *b;
@@ -455,6 +491,10 @@ void swapptr(void** a, void** b) {
 	void* temp = *a;
 	*a = *b;
 	*b = temp;
+}
+
+int absi(int a) {
+	return a < 0 ? -a : a;
 }
 
 typedef struct {
@@ -563,8 +603,8 @@ inline unsigned short sampletextureuv(
 	vec2 uv) {
 	// source textures are y flipped
 	uv.y = 1.0f - uv.y;
-	int addrx = (int)(uv.x * (float)texture.texwidth);
-	int addry = (int)(uv.y * (float)texture.texheight);
+	int addrx = (int)(uv.x * ((float)texture.texwidth - 0.51f));
+	int addry = (int)(uv.y * ((float)texture.texheight - 0.51f));
 	if (addrx < 0) {
 		addrx = addrx + texture.texwidth * (1 - addrx / texture.texwidth);
 	}
@@ -587,6 +627,14 @@ inline unsigned short sampletextureuv(
 Texture boundtexture;
 
 #if !RP2
+void clearscenedepth(DrawMeshArgs* meshargs) {
+	for (int x = 0; x < width; ++x) {
+		for (int y = 0; y < height; ++y) {
+			meshargs->color[x * height + y] = 0b1111100000000000;
+			meshargs->depth[x * height + y] = 1000.0f;
+		}
+	}
+}
 void present(DrawMeshArgs* meshargs) {
 	for (int x = 0; x < width; ++x) {
 		for (int y = 0; y < height; ++y) {
@@ -595,7 +643,7 @@ void present(DrawMeshArgs* meshargs) {
 			float green = (float)((color565 >> 5) & 0x3F) / 63.0f;
 			float blue = (float)((color565) & 0x1F) / 31.0f;
 			SDL_SetRenderDrawColor(renderer, 255.0f * red, 255.0f * green, 255.0f * blue, 255);
-			SDL_RenderDrawPoint(renderer, x, y);
+			SDL_RenderDrawPoint(renderer, y, x);
 		}
 	}
 }
@@ -621,6 +669,14 @@ inline float clampf(float val, float min, float max) {
 		out = max;
 	}
 	return out;
+}
+
+inline float minf(float a, float b) {
+	return a < b ? a : b;
+}
+
+inline float maxf(float a, float b) {
+	return a > b ? a : b;
 }
 
 inline int mini(int a, int b) {
@@ -691,7 +747,8 @@ inline void drawscandepthuv(
 			// Or write attributes to gbuffer
 			vec2 uv = vecadd2(vecmuls2(uva, (1.0f - t)), vecmuls2(uvb, t));
 			unsigned short rgb565 = sampletextureuv(boundtexture, vecdivs2(uv, w));
-			if (rgb565 == 0xffff) {
+			if(meshargs->blendstate.AlphaClipEnable && 
+				meshargs->blendstate.AlphaClipColor == rgb565) {
 				continue;
 			}
 			if (!(x >= 0 && x < width && y >= 0 && y < height)) {
@@ -701,6 +758,135 @@ inline void drawscandepthuv(
 			meshargs->color[y * height + x] = rgb565;
 		}
 	}
+}
+
+// BH Line raster from Thumby/Ardifruit libraries
+void drawLine(
+	DrawMeshArgs* meshargs,
+	Edge3UV edge) {
+
+	int x0 = edge.a.x;
+	int x1 = edge.b.x;
+	int y0 = edge.a.y;
+	int y1 = edge.b.y;
+	float z0 = edge.a.z;
+	float z1 = edge.b.z;
+	vec2 uv0 = edge.uva;
+	vec2 uv1 = edge.uvb;
+	float w0 = edge.wa;
+	float w1 = edge.wb;
+
+	vec2 edgediff = vecsub2(vec2C(x0, y0), vec2C(x1, y1));
+	float edgelength = vecmag2(edgediff);
+
+	bool steep = absi(y1 - y0) > absi(x1 - x0);
+	if (steep) {
+		swapi(&x0, &y0);
+		swapi(&x1, &y1);
+	}
+
+	if (x0 > x1) {
+		swapi(&x0, &x1);
+		swapi(&y0, &y1);
+		swap(&z0, &z1);
+		swap2(&uv0, &uv1);
+		swap(&w0, &w1);
+	}
+
+	int dx = x1 - x0;
+	int dy = absi(y1 - y0);
+
+	int err = dx / 2;
+	int ystep = 1;
+
+	if (y0 < y1) {
+		ystep = 1;
+	}
+	else {
+		ystep = -1;
+	}
+
+	int startx = x0;
+	int starty = y0;
+
+	for (; x0 <= x1; x0++) {
+		vec2 diff = vecsub2(vec2C(x0, y0), vec2C(startx, starty));
+		float length = vecmag2(diff);
+		float t = length / maxf(edgelength, 1.0f);
+		float w = w0 * ((float)1.0f - t) + w1 * t;
+		if (w == 0.0f) {
+			continue;
+		}
+		float z = z0 * ((float)1.0f - t) + z1 * t;
+		vec2 uv = vecadd2(vecmuls2(uv0, (1.0f - t)), vecmuls2(uv1, t));
+		unsigned short rgb565 = sampletextureuv(boundtexture, vecdivs2(uv, w));
+		if(meshargs->blendstate.AlphaClipEnable && 
+			meshargs->blendstate.AlphaClipColor == rgb565) {
+			continue;
+		}
+		if (!(x0 >= 0 && x0 < width && y0 >= 0 && y0 < height)) {
+			continue;
+		}
+		if (steep) {
+			if (meshargs->depth[x0 * height + y0] > z / w) {
+				meshargs->depth[x0 * height + y0] = z / w;
+				meshargs->color[x0 * height + y0] = rgb565;
+			}
+		}
+		else {
+			if (meshargs->depth[y0 * height + x0] > z / w) {
+				meshargs->depth[y0 * height + x0] = z / w;
+				meshargs->color[y0 * height + x0] = rgb565;
+			}
+		}
+		err -= dy;
+		if (err < 0) {
+			y0 += ystep;
+			err += dx;
+		}
+	}
+}
+
+inline void drawLines(
+	DrawMeshArgs* meshargs,
+	TriangleUV tri) {
+	vec3 v1 = tri.a;
+	vec3 v2 = tri.b;
+	vec3 v3 = tri.c;
+	vec2 uv1 = tri.auv;
+	vec2 uv2 = tri.buv;
+	vec2 uv3 = tri.cuv;
+	float w1 = tri.aw;
+	float w2 = tri.bw;
+	float w3 = tri.cw;
+
+	drawLine(
+		meshargs,
+		Edge3UVC(
+			v1,
+			v2,
+			uv1,
+			uv2,
+			w1,
+			w2));
+	drawLine(
+		meshargs,
+		Edge3UVC(
+			v2,
+			v3,
+			uv2,
+			uv3,
+			w2,
+			w3));
+	drawLine(
+		meshargs,
+		Edge3UVC(
+			v3,
+			v1,
+			uv3,
+			uv1,
+			w3,
+			w1));
 }
 
 // draw from top to bottom 
@@ -718,10 +904,10 @@ inline void fillBottomFlatTriangleuv(
 	float w3 = tri.cw;
 
 	if (v2.y - v1.y == 0.0f) {
-		return;
+		//return;
 	}
 	if (v3.y - v1.y == 0.0f) {
-		return;
+		//return;
 	}
 
 	float invslope1 = (v2.x - v1.x) / (v2.y - v1.y);
@@ -748,14 +934,24 @@ inline void fillBottomFlatTriangleuv(
 	float curw1 = w1;
 	float curw2 = w1;
 
-	int minx = mini(mini((int)v1.x, (int)v2.x), (int)v3.x);
-	int maxx = maxi(maxi((int)v1.x, (int)v2.x), (int)v3.x);
+	float minx = minf(minf(v1.x, v2.x), v3.x);
+	float maxx = maxf(maxf(v1.x, v2.x), v3.x);
+	minx = floorf(minx);
+	maxx = ceilf(maxx);
 
-	v1.y = (int)clampi((int)v1.y, 0, (int)height-1);
-	v2.y = (int)clampi((int)v2.y, 0, (int)height-1);
+	float minuvx = minf(minf(uv1.x, uv2.x), uv3.x);
+	float minuvy = minf(minf(uv1.y, uv2.y), uv3.y);
+	float maxuvx = maxf(maxf(uv1.x, uv2.x), uv3.x);
+	float maxuvy = maxf(maxf(uv1.y, uv2.y), uv3.y);
 
-	for (int scanlineY = (int)v1.y; scanlineY <= (int)v2.y; scanlineY++)
-	{
+	v1.y = (int)clampi((int)v1.y, 0, (int)height - 1);
+	v2.y = (int)clampi((int)v2.y, 0, (int)height - 1);
+
+	for (int scanlineY = (int)v1.y; scanlineY <= (int)ceilf(v2.y); scanlineY++) {
+		curuv1.x = clampf(curuv1.x, minuvx, maxuvx);
+		curuv2.x = clampf(curuv2.x, minuvx, maxuvx);
+		curuv1.y = clampf(curuv1.y, minuvy, maxuvy);
+		curuv2.y = clampf(curuv2.y, minuvy, maxuvy);
 		curx1 = clampf(curx1, (float)minx, (float)maxx);
 		curx2 = clampf(curx2, (float)minx, (float)maxx);
 		drawscandepthuv(meshargs, scanlineY, (int)curx1, (int)curx2, curz1, curz2, curuv1, curuv2, curw1, curw2);
@@ -784,10 +980,10 @@ inline void fillTopFlatTriangleuv(
 	float w3 = tri.cw;
 
 	if (v3.y - v1.y == 0.0f) {
-		return;
+		//return;
 	}
 	if (v3.y - v2.y == 0.0f) {
-		return;
+		//return;
 	}
 
 	float invslope1 = (v3.x - v1.x) / (v3.y - v1.y);
@@ -814,13 +1010,26 @@ inline void fillTopFlatTriangleuv(
 	float curw1 = w3;
 	float curw2 = w3;
 
-	int minx = mini(mini((int)v1.x, (int)v2.x), (int)v3.x);
-	int maxx = maxi(maxi((int)v1.x, (int)v2.x), (int)v3.x);
+	float minx = minf(minf(v1.x, v2.x), v3.x);
+	float maxx = maxf(maxf(v1.x, v2.x), v3.x);
+	minx = floorf(minx);
+	maxx = ceilf(maxx);
 
-	for (int scanlineY = (int)v3.y; scanlineY > (int)v1.y; scanlineY--)
-	{
+	float minuvx = minf(minf(uv1.x, uv2.x), uv3.x);
+	float minuvy = minf(minf(uv1.y, uv2.y), uv3.y);
+	float maxuvx = maxf(maxf(uv1.x, uv2.x), uv3.x);
+	float maxuvy = maxf(maxf(uv1.y, uv2.y), uv3.y);
+
+	v1.y = (int)clampi((int)v1.y, 0, (int)height - 1);
+	v2.y = (int)clampi((int)v2.y, 0, (int)height - 1);
+
+	for (int scanlineY = (int)ceilf(v3.y); scanlineY > (int)(v1.y); scanlineY--) {
 		curx1 = clampf(curx1, (float)minx, (float)maxx);
 		curx2 = clampf(curx2, (float)minx, (float)maxx);
+		curuv1.x = clampf(curuv1.x, minuvx, maxuvx);
+		curuv2.x = clampf(curuv2.x, minuvx, maxuvx);
+		curuv1.y = clampf(curuv1.y, minuvy, maxuvy);
+		curuv2.y = clampf(curuv2.y, minuvy, maxuvy);
 		drawscandepthuv(meshargs, scanlineY, (int)curx1, (int)curx2, curz1, curz2, curuv1, curuv2, curw1, curw2);
 		curx1 -= invslope1;
 		curx2 -= invslope2;
@@ -839,7 +1048,7 @@ typedef enum {
 	B,
 	AB,
 } ClipCode;
-// fill a triangle using the standard fille algorithm filling top and bottom triangles
+// fill a triangle using the standard fill algorithm filling top and bottom triangles
 // convert to Brensenham for interger math speedup
 // http://www.sunshine2k.de/coding/java/TriangleRasterization/TriangleRasterization.html
 inline void rastertriangleuv(
@@ -857,23 +1066,19 @@ inline void rastertriangleuv(
 	float bw = tri.bw;
 	float cw = tri.cw;
 
-	// fill each row 
-	/* here we know that v1.y <= v2.y <= v3.y */
-	/* check for trivial case of bottom-flat triangle */
-	if (tri.b.y == tri.c.y)
-	{
+	// Flat case bottom
+	if (tri.b.y == tri.c.y) {
+		drawLines(meshargs, tri);
 		fillBottomFlatTriangleuv(meshargs, tri);
 	}
-	/* check for trivial case of top-flat triangle */
-	else if (tri.a.y == tri.b.y)
-	{
+	// Flat cast top
+	else if (tri.a.y == tri.b.y) {
+		drawLines(meshargs, tri);
 		fillTopFlatTriangleuv(meshargs, tri);
 	}
-	else
-	{
+	else {
 		float ylerp = (b.y - a.y) / (c.y - a.y);
 		float depthinterp = (a.z + ylerp * (c.z - a.z));
-		/* general case - split the triangle in a topflat and bottom-flat one */
 		vec3 d = vec3C(
 			a.x + ylerp * (c.x - a.x),
 			b.y,
@@ -885,8 +1090,10 @@ inline void rastertriangleuv(
 
 		float dw = tri.aw * (1.0f - ylerp) + tri.cw * ylerp;
 		TriangleUV tria = TriangleUVC(a, b, d, auv, buv, duv, aw, bw, dw);
+		drawLines(meshargs, tria);
 		fillBottomFlatTriangleuv(meshargs, tria);
 		TriangleUV trib = TriangleUVC(b, d, c, buv, duv, cuv, bw, dw, cw);
+		drawLines(meshargs, trib);
 		fillTopFlatTriangleuv(meshargs, trib);
 	}
 }
@@ -904,8 +1111,7 @@ inline Edge3UV clipplanecodeduv(
 	bool flippededge = false;
 	if ((d0 >= 0.0f) ^ (d1 >= 0.0f)) {
 		intersect = true;
-		if (d1 >= 0.0f)
-		{
+		if (d1 >= 0.0f) {
 			flippededge = true;
 			edgeout.a = edge.b;
 			edgeout.b = edge.a;
@@ -918,8 +1124,7 @@ inline Edge3UV clipplanecodeduv(
 	if ((d0 < 0.0f) && (d1 < 0.0f)) {
 		*clipcode = NONE;
 	}
-	if (intersect)
-	{
+	if (intersect) {
 		float t = 0.0f;
 		vec3 intersect0 = vectorplaneintersect(planepoint, planenormal, edgeout.a, edgeout.b, &t);
 		if (t >= 0.0f && t <= 1.0f) {
@@ -1071,13 +1276,13 @@ void triangleclipuv(
 		}
 		return;
 	}
-	#if 0
+#if 0
 	// fast path trivial reject
 	if (!hasinside) {
 		*numpassedverts = 0;
 		return;
 	}
-	#endif
+#endif
 
 	// clip against 4 screen sides
 	for (int planei = 1; planei < NUM_PLANES; ++planei) {
@@ -1170,7 +1375,7 @@ void rastermesh(DrawMeshArgs* meshargs) {
 	boundtexture = TextureC(
 		globalmaterials[materialindex].texwidth,
 		globalmaterials[materialindex].texheight,
-		meshargs->globalmaterialdata + globalmaterials[materialindex].globaloffset/sizeof(unsigned short));
+		meshargs->globalmaterialdata + globalmaterials[materialindex].globaloffset / sizeof(unsigned short));
 
 	for (int vertind = 0; vertind < numtriangles; vertind += 3) {
 		if (vertind > shapematerials[shapeindex].maxvertexindex) {
@@ -1179,7 +1384,7 @@ void rastermesh(DrawMeshArgs* meshargs) {
 			boundtexture = TextureC(
 				globalmaterials[materialindex].texwidth,
 				globalmaterials[materialindex].texheight,
-				meshargs->globalmaterialdata + globalmaterials[materialindex].globaloffset/sizeof(unsigned short));
+				meshargs->globalmaterialdata + globalmaterials[materialindex].globaloffset / sizeof(unsigned short));
 		}
 
 		vec3 playerpos = vec3C(
@@ -1279,7 +1484,7 @@ float depthbuffer[width * height * screenmultiple];
 
 void loadtestmesh() {
 	FILE* file;
-	errno_t err = fopen_s(&file, "F:\\ThumbyRaster\\Data\\Peaches_Castle.bin", "rb");
+	errno_t err = fopen_s(&file, "F:\\ThumbyRaster\\Data\\BBB_Room.bin", "rb");
 	assert(file);
 	// all mesh data is dword sized
 	// load num verts
@@ -1299,7 +1504,7 @@ void loadtestmesh() {
 
 void loadglobalmaterials() {
 	FILE* file;
-	errno_t err = fopen_s(&file, "F:\\ThumbyRaster\\Data\\Peaches_Castle_global_mat.bin", "rb");
+	errno_t err = fopen_s(&file, "F:\\ThumbyRaster\\Data\\BBB_Room_global_mat.bin", "rb");
 	assert(file);
 	// load number of materials
 	fread((void*)&globalmats.nummaterials, sizeof(unsigned int), 1, file);
@@ -1397,6 +1602,7 @@ void loop() {
 
 	DrawMeshArgs meshargs = {};
 	GetMeshArgs(&meshargs, &playerpos, &projmat, &viewmap, &testmesh);
+
 	clearscenedepth(&meshargs);
 
 	rastermesh(&meshargs);

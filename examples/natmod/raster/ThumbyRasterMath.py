@@ -8,7 +8,7 @@ import rp2
 
 import ThumbyRaster
 
-# Temporary Engine Vector3 math functiosn
+# Temporary Engine Vector3 math functions
 def Vector3AddV(A : Vector3, B : Vector3):
     return Vector3(A.x + B.x, A.y + B.y, A.z + B.z)
 def Vector3MulF(A : Vector3, B : float):
@@ -59,6 +59,12 @@ class Matrix44:
             MatOut.Data[Row * 4 + 2] = self.GetRow(Row).Dot(ColVec2);
             MatOut.Data[Row * 4 + 3] = self.GetRow(Row).Dot(ColVec3);
         return MatOut
+    def Identity(self):
+        self.Data = array.array('f',
+            [1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0])
     def Translation(self, Position : Vector3):
         self.Data = array.array('f',
             [1.0, 0.0, 0.0, Position.x,
@@ -125,13 +131,11 @@ class RenderState:
         ThumbyRaster.ClearDepthBuffer(
             self.DepthBuffer,
             Depth)
-
+        
 class Model:
     def __init__(self):
         self.HasTexture = False
-        self.IsDynamicMesh = False
-        # rgb 8 8 8
-        self.MeshColor = array.array('f', [255.0, 255.0, 255.0])
+        self.MeshColor = array.array('f', [1.0, 1.0, 1.0])
         self.NumVerts = 0
         self.NumShapes = 0
         self.NumMaterials = 0
@@ -140,6 +144,9 @@ class Model:
         self.ShapeMaterialMap = array.array('I')
         self.GlobalMaterialMap = array.array('I')
         self.GlobalMaterialData = array.array('H')
+        self.ObjectTransform = Matrix44().Identity()
+        self.AlphaMaskColor = Vector3(1.0, 1.0, 1.0)
+        self.EnableAlphaMask = False
         
     def LoadMesh(self, MeshFileName):
         MeshFile = open(MeshFileName, "rb")
@@ -186,23 +193,40 @@ class Model:
     
     def SetMeshColor(self, Color : Vector3):
         self.MeshColor = Color
+        
+    def SetAlphaClipState(self, EnableAlphaMask : bool, Color : Vector3):
+        self.AlphaMaskColor = Color
+        self.EnableAlphaMask = EnableAlphaMask
+        
+    def SetTransform(self, Transform : Matrix44):
+        self.ObjectTransform = Transform
                             
     def LoadModel(self, MeshFileName, MaterialFileName, StoreInFlash=False):
         self.LoadMesh(MeshFileName)
         self.LoadMaterial(MaterialFileName)
         
     def Draw(self, State : RenderState):
+        ModelView = Matrix44()
+        ViewMat = Matrix44()
+        ViewMat.Data = State.ViewMatrix
+        ModelView = ViewMat.Mul(self.ObjectTransform)
+        BlendState = array.array('f',
+            [self.EnableAlphaMask,
+            self.AlphaMaskColor.x,
+            self.AlphaMaskColor.y,
+            self.AlphaMaskColor.z])
         ThumbyRaster.DrawTrianglesTex(
-                State.RenderTarget,
-                State.DepthBuffer,
-                State.CameraPosition,
-                State.ViewMatrix,
-                State.ProjMatrix,
-                self.NumVerts,
-                self.Vertices,
-                self.ShapeMaterialMap,
-                self.GlobalMaterialMap,
-                self.GlobalMaterialData)
+            BlendState,
+            State.RenderTarget,
+            State.DepthBuffer,
+            State.CameraPosition,
+            ModelView.Data,
+            State.ProjMatrix,
+            self.NumVerts,
+            self.Vertices,
+            self.ShapeMaterialMap,
+            self.GlobalMaterialMap,
+            self.GlobalMaterialData)
 
 # TODO Buffer and flush multiple allocations within a page
 # Configurable number of pages for small block allocation

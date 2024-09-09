@@ -19,21 +19,31 @@ machine.freq(300 * 1000 * 1000)
 
 def Main():
     MainRenderState = RenderState()
-    #meshfilename = "Peaches_Castle.bin"
-    #materialfilename = "Peaches_Castle_global_mat.bin"
+    #MeshFileName = "Peaches_Castle.bin"
+    #MaterialFileName = "Peaches_Castle_global_mat.bin"
     #MeshFileName = "bbb_room.bin"
     #MaterialFileName = "bbb_room_global_mat.bin"
     MeshFileName = "dragon.bin"
     MaterialFileName = "dragon_global_mat.bin"
     TestModel = Model()
+    TestModel.SetAlphaClipState(True, Vector3(1.0, 1.0, 1.0))
     TestModel.LoadModel(MeshFileName, MaterialFileName)
+    ObjectRot = Matrix44()
+    ObjectRot.Identity()
+    #ObjectRot.Euler(45.0, 0.0, 45.0)
+    ObjectPos = Matrix44()
+    ObjectPos.Identity()
+    #ObjectPos.Translation(Vector3(0.0, 0.0, -10.0))
+    ObjectTF = ObjectPos.Mul(ObjectRot)
+    TestModel.SetTransform(ObjectTF)
 
     CameraAngle = 180.0
     Roll = 0.0
     Yaw = CameraAngle
     Pitch = 0.0
     
-    CameraPosition = Vector3(6.0, -6.0, -12.0)
+    CameraPosition = Vector3(0.0, -1.0, 0.0)
+    #CameraPosition = Vector3(6.0, -6.0, -12.0)
     
     while(True):
         if engine.tick():
@@ -83,7 +93,6 @@ def Main():
 
             # Render state can be used to render different viewports
             TestModel.Draw(MainRenderState)
-            
             # Physics test against world model
             # Sphere against tris       
     
