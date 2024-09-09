@@ -28,6 +28,10 @@ def Main():
     TestModel = Model()
     TestModel.SetAlphaClipState(True, Vector3(1.0, 1.0, 1.0))
     TestModel.LoadModel(MeshFileName, MaterialFileName)
+    
+    TestDynamicModel = Model()
+    TestDynamicModel.SetDynamicMeshTriangles([[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [10.0, 0.0, 0.0]])
+
     ObjectRot = Matrix44()
     ObjectRot.Identity()
     #ObjectRot.Euler(45.0, 0.0, 45.0)
@@ -36,6 +40,7 @@ def Main():
     #ObjectPos.Translation(Vector3(0.0, 0.0, -10.0))
     ObjectTF = ObjectPos.Mul(ObjectRot)
     TestModel.SetTransform(ObjectTF)
+    TestDynamicModel.SetTransform(ObjectTF)
 
     CameraAngle = 180.0
     Roll = 0.0
@@ -93,6 +98,7 @@ def Main():
 
             # Render state can be used to render different viewports
             TestModel.Draw(MainRenderState)
+            TestDynamicModel.Draw(MainRenderState)
             # Physics test against world model
             # Sphere against tris       
     

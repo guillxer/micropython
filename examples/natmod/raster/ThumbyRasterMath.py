@@ -37,10 +37,10 @@ class Vector4:
 class Matrix44:
     def __init__(self):
         self.Data = array.array('f',
-            [0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0])
+            [1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0])
     def GetRow(self, Row : int):
         return Vector4(
             self.Data[Row * 4 + 0], 
@@ -135,7 +135,7 @@ class RenderState:
 class Model:
     def __init__(self):
         self.HasTexture = False
-        self.MeshColor = array.array('f', [1.0, 1.0, 1.0])
+        self.MeshColor = Vector3(1.0, 1.0, 1.0)
         self.NumVerts = 0
         self.NumShapes = 0
         self.NumMaterials = 0
@@ -144,9 +144,12 @@ class Model:
         self.ShapeMaterialMap = array.array('I')
         self.GlobalMaterialMap = array.array('I')
         self.GlobalMaterialData = array.array('H')
-        self.ObjectTransform = Matrix44().Identity()
+        self.ObjectTransform = Matrix44()
+        self.ObjectTransform.Identity()
         self.AlphaMaskColor = Vector3(1.0, 1.0, 1.0)
         self.EnableAlphaMask = False
+        self.UseMeshColor = False
+        self.IsDynamicMesh = False
         
     def LoadMesh(self, MeshFileName):
         MeshFile = open(MeshFileName, "rb")
@@ -188,15 +191,30 @@ class Model:
         MaterialFile.close()
         gc.collect()
         
-    def SetDynamicMeshTriangles():
+    def SetDynamicMeshTriangles(self, PositionArray):
+        self.NumVerts = len(PositionArray)
+        self.Vertices = array.array('f', range(self.NumVerts*5))
+        i = 0
+        for Position in PositionArray:
+            self.Vertices[i * 5 + 0] = Position[0]
+            self.Vertices[i * 5 + 1] = Position[1]
+            self.Vertices[i * 5 + 2] = Position[2]
+            self.Vertices[i * 5 + 3] = 0.0
+            self.Vertices[i * 5 + 4] = 0.0
+            i += 1
+        self.ShapeMaterialMap = array.array('I', [0, self.NumVerts * 5])
+        self.GlobalMaterialMap = array.array('I', [0, 0, 0])
+        self.GlobalMaterialData = array.array('H', [0, 0, 0])
+        self.UseMeshColor = True
         self.IsDynamicMesh = True
     
-    def SetMeshColor(self, Color : Vector3):
+    def SetMeshColor(self, UseMeshColor : bool, Color : Vector3):
+        self.UseMeshColor = UseMeshColor
         self.MeshColor = Color
         
     def SetAlphaClipState(self, EnableAlphaMask : bool, Color : Vector3):
-        self.AlphaMaskColor = Color
         self.EnableAlphaMask = EnableAlphaMask
+        self.AlphaMaskColor = Color
         
     def SetTransform(self, Transform : Matrix44):
         self.ObjectTransform = Transform
@@ -215,8 +233,14 @@ class Model:
             self.AlphaMaskColor.x,
             self.AlphaMaskColor.y,
             self.AlphaMaskColor.z])
+        ShaderState = array.array('f',
+            [self.UseMeshColor,
+            self.MeshColor.x,
+            self.MeshColor.y,
+            self.MeshColor.z])
         ThumbyRaster.DrawTrianglesTex(
             BlendState,
+            ShaderState,
             State.RenderTarget,
             State.DepthBuffer,
             State.CameraPosition,
@@ -241,7 +265,7 @@ class BlockAllocator:
         self.NextResourceID = 0
         print(self.FreePageList)
         
-    def FindStartOfRange(NumPages : int):
+    def FindStartOfRange(self, NumPages : int):
         pass
         
     def WriteFirmware(self, Data):

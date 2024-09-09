@@ -763,13 +763,7 @@ inline void drawscandepthuv(
 			// TODO flexible shader implementation should go here
 			// Or write attributes to gbuffer
 			vec2 uv = vecadd2(vecmuls2(uva, (1.0f - t)), vecmuls2(uvb, t));
-			unsigned short rgb565;
-			if(meshargs->shaderstate.UseMeshColor) {
-				rgb565 = meshargs->shaderstate.MeshColor;
-			}
-			else {
-				rgb565 = sampletextureuv(boundtexture, vecdivs2(uv, w));
-			}
+			unsigned short rgb565 = sampletextureuv(boundtexture, vecdivs2(uv, w));
 			if(meshargs->blendstate.AlphaClipEnable && 
 				meshargs->blendstate.AlphaClipColor == rgb565) {
 				continue;
