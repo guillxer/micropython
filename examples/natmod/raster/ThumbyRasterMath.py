@@ -149,6 +149,7 @@ class Model:
         self.AlphaMaskColor = Vector3(1.0, 1.0, 1.0)
         self.EnableAlphaMask = False
         self.UseMeshColor = False
+        self.UseVertexColor = False
         self.IsDynamicMesh = False
         
     def LoadMesh(self, MeshFileName):
@@ -156,10 +157,14 @@ class Model:
         # All mesh data is dword sized   
         self.NumVerts = int.from_bytes(MeshFile.read(4), "little")
         # Load vertices with position + uv
+        j = 0
         for i in range(0, self.NumVerts * 5, 1):
             VertElement = MeshFile.read(4)
             Unpackedverts = struct.unpack('<f', VertElement)[0]
             self.Vertices.append(Unpackedverts)
+            if(j % 5 == 4):
+                 self.Vertices.append(0.0)
+            j += 1
         # Load number of shapes
         self.NumShapes = int.from_bytes(MeshFile.read(4), "little")
         gc.collect()
@@ -193,22 +198,23 @@ class Model:
         
     def SetDynamicMeshTriangles(self, PositionArray):
         self.NumVerts = len(PositionArray)
-        self.Vertices = array.array('f', range(self.NumVerts*5))
-        print(str(self.NumVerts))
+        self.Vertices = array.array('f', range(self.NumVerts*6))
         i = 0
         for Position in PositionArray:
-            self.Vertices[i * 5 + 0] = Position[0]
-            self.Vertices[i * 5 + 1] = Position[1]
-            self.Vertices[i * 5 + 2] = Position[2]
-            self.Vertices[i * 5 + 3] = 0.0
-            self.Vertices[i * 5 + 4] = 0.0
-            print(str(Position))
+            self.Vertices[i * 6 + 0] = Position[0]
+            self.Vertices[i * 6 + 1] = Position[1]
+            self.Vertices[i * 6 + 2] = Position[2]
+            self.Vertices[i * 6 + 3] = Position[3]
+            self.Vertices[i * 6 + 4] = Position[4]
+            self.Vertices[i * 6 + 5] = Position[5]
             i += 1
         self.ShapeMaterialMap = array.array('I', [self.NumVerts * 10, 0])
         self.GlobalMaterialMap = array.array('I', [1, 1, 0])
         self.GlobalMaterialData = array.array('H', [0, 0, 0, 0])
-        self.UseMeshColor = True
         self.IsDynamicMesh = True
+        
+    def SetUseVertexColor(self, UseVertexColor : bool):
+        self.UseVertexColor = UseVertexColor
     
     def SetMeshColor(self, UseMeshColor : bool, Color : Vector3):
         self.UseMeshColor = UseMeshColor
@@ -237,6 +243,7 @@ class Model:
             self.AlphaMaskColor.z])
         ShaderState = array.array('f',
             [self.UseMeshColor,
+            self.UseVertexColor,
             self.MeshColor.x,
             self.MeshColor.y,
             self.MeshColor.z])

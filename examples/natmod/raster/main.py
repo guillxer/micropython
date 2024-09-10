@@ -21,20 +21,24 @@ def Main():
     MainRenderState = RenderState()
     #MeshFileName = "Peaches_Castle.bin"
     #MaterialFileName = "Peaches_Castle_global_mat.bin"
-    #MeshFileName = "bbb_room.bin"
-    #MaterialFileName = "bbb_room_global_mat.bin"
-    MeshFileName = "dragon.bin"
-    MaterialFileName = "dragon_global_mat.bin"
+    MeshFileName = "bbb_room.bin"
+    MaterialFileName = "bbb_room_global_mat.bin"
+    #MeshFileName = "dragon.bin"
+    #MaterialFileName = "dragon_global_mat.bin"
     TestModel = Model()
     TestModel.SetAlphaClipState(True, Vector3(1.0, 1.0, 1.0))
     TestModel.LoadModel(MeshFileName, MaterialFileName)
     
-    tris = [[0, 7.5, 0], [1, 6.851854, 0], [0, 7.00266, 1],
-        [1, 6.851854, 0], [1, 6.357321, 1], [0, 7.00266, 1],
-        [0, 7.00266, 1], [1, 6.357321, 1], [0, 6.512616, 2],
-        [1, 6.357321, 1], [1, 5.873226, 2], [0, 6.512616, 2]]
+    tris = [[1.0, 1.0, -1.0, 1.0, 0.0, 0.0],
+            [1.0, 2.0, -1.0, 0.0, 1.0, 0.0],
+            [2.0, 2.0, -1.0, 0.0, 0.0, 1.0],
+            [2.0, 2.0, -1.0, 0.0, 0.0, 1.0],
+            [2.0, 1.0, -1.0, 0.0, 1.0, 0.0],
+            [1.0, 1.0, -1.0, 1.0, 0.0, 0.0]]
     TestDynamicModel = Model()
     TestDynamicModel.SetDynamicMeshTriangles(tris)
+    TestDynamicModel.SetUseVertexColor(True)
+    gc.collect()
 
     ObjectRot = Matrix44()
     ObjectRot.Identity()

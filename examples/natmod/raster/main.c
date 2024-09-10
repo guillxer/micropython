@@ -96,6 +96,7 @@ typedef struct {
 
 typedef struct {
 	bool UseMeshColor;
+	bool UseVertexColor;
 	unsigned short MeshColor;
 } ShaderState;
 
@@ -131,7 +132,8 @@ BlendState GetBlendState(float* StateArray) {
 ShaderState GetShaderState(float* StateArray) {
 	ShaderState State;
 	State.UseMeshColor = StateArray[0] != 0;
-	State.MeshColor = FloatTo565(&StateArray[1]);
+	State.UseVertexColor = StateArray[1] != 0;
+	State.MeshColor = FloatTo565(&StateArray[2]);
 	return State;
 }
 
@@ -520,6 +522,7 @@ typedef struct {
 	float z;
 	float uvx;
 	float uvy;
+	float uvz;
 } VertexPUV;
 
 // per triangle material map for a single material 
@@ -537,16 +540,16 @@ typedef struct {
 
 typedef struct {
 	vec3 a, b, c;
-	vec2 auv, buv, cuv;
+	vec3 auv, buv, cuv;
 	float aw, bw, cw;
 } TriangleUV;
 TriangleUV TriangleUVC(
 	vec3 ain,
 	vec3 bin,
 	vec3 cin,
-	vec2 auvin,
-	vec2 buvin,
-	vec2 cuvin,
+	vec3 auvin,
+	vec3 buvin,
+	vec3 cuvin,
 	float awin,
 	float bwin,
 	float cwin) {
@@ -565,17 +568,17 @@ TriangleUV TriangleUVC(
 void sortascending(TriangleUV* triangle) {
 	if (triangle->a.y > triangle->b.y) {
 		swap3(&triangle->a, &triangle->b);
-		swap2(&triangle->auv, &triangle->buv);
+		swap3(&triangle->auv, &triangle->buv);
 		swap(&triangle->aw, &triangle->bw);
 	}
 	if (triangle->b.y > triangle->c.y) {
 		swap3(&triangle->b, &triangle->c);
-		swap2(&triangle->buv, &triangle->cuv);
+		swap3(&triangle->buv, &triangle->cuv);
 		swap(&triangle->bw, &triangle->cw);
 	}
 	if (triangle->a.y > triangle->b.y) {
 		swap3(&triangle->a, &triangle->b);
-		swap2(&triangle->auv, &triangle->buv);
+		swap3(&triangle->auv, &triangle->buv);
 		swap(&triangle->aw, &triangle->bw);
 	}
 }
@@ -587,12 +590,12 @@ vec3 facenormal(TriangleUV triangles) {
 typedef struct {
 	vec3 a;
 	vec3 b;
-	vec2 uva;
-	vec2 uvb;
+	vec3 uva;
+	vec3 uvb;
 	float wa;
 	float wb;
 } Edge3UV;
-Edge3UV Edge3UVC(vec3 ain, vec3 bin, vec2 auvin, vec2 buvin, float wain, float wbin) {
+Edge3UV Edge3UVC(vec3 ain, vec3 bin, vec3 auvin, vec3 buvin, float wain, float wbin) {
 	Edge3UV out;
 	out.a = ain;
 	out.b = bin;
@@ -728,15 +731,15 @@ inline void drawscandepthuv(
 	int x2,
 	float z1,
 	float z2,
-	vec2 uva,
-	vec2 uvb,
+	vec3 uva,
+	vec3 uvb,
 	float wa,
 	float wb) {
 	if (x1 > x2) {
 		int temp = x1;
 		x1 = x2;
 		x2 = temp;
-		vec2 tempuv = uva;
+		vec3 tempuv = uva;
 		uva = uvb;
 		uvb = tempuv;
 		float tempz = z1;
@@ -762,13 +765,17 @@ inline void drawscandepthuv(
 		if (meshargs->depth[y * height + x] > z / w) {
 			// TODO flexible shader implementation should go here
 			// Or write attributes to gbuffer
-			vec2 uv = vecadd2(vecmuls2(uva, (1.0f - t)), vecmuls2(uvb, t));
+			vec3 uv = vecadd(vecmuls(uva, (1.0f - t)), vecmuls(uvb, t));
 			unsigned short rgb565;
-			if(meshargs->shaderstate.UseMeshColor) {
+			if (meshargs->shaderstate.UseMeshColor) {
 				rgb565 = meshargs->shaderstate.MeshColor;
 			}
+			else if (meshargs->shaderstate.UseVertexColor) {
+				vec3 worlduv = vecdivs(uv, w);
+				rgb565 = FloatTo565((float*)&worlduv);
+			}
 			else {
-				rgb565 = sampletextureuv(boundtexture, vecdivs2(uv, w));
+				rgb565 = sampletextureuv(boundtexture, vecdivs2(vec2C(uv.x, uv.y), w));
 			}
 			if(meshargs->blendstate.AlphaClipEnable && 
 				meshargs->blendstate.AlphaClipColor == rgb565) {
@@ -794,8 +801,8 @@ void drawLine(
 	int y1 = edge.b.y;
 	float z0 = edge.a.z;
 	float z1 = edge.b.z;
-	vec2 uv0 = edge.uva;
-	vec2 uv1 = edge.uvb;
+	vec3 uv0 = edge.uva;
+	vec3 uv1 = edge.uvb;
 	float w0 = edge.wa;
 	float w1 = edge.wb;
 
@@ -812,7 +819,7 @@ void drawLine(
 		swapi(&x0, &x1);
 		swapi(&y0, &y1);
 		swap(&z0, &z1);
-		swap2(&uv0, &uv1);
+		swap3(&uv0, &uv1);
 		swap(&w0, &w1);
 	}
 
@@ -841,8 +848,8 @@ void drawLine(
 			continue;
 		}
 		float z = z0 * ((float)1.0f - t) + z1 * t;
-		vec2 uv = vecadd2(vecmuls2(uv0, (1.0f - t)), vecmuls2(uv1, t));
-		unsigned short rgb565 = sampletextureuv(boundtexture, vecdivs2(uv, w));
+		vec3 uv = vecadd(vecmuls(uv0, (1.0f - t)), vecmuls(uv1, t));
+		unsigned short rgb565 = sampletextureuv(boundtexture, vecdivs2(vec2C(uv.x, uv.y), w));
 		if(meshargs->blendstate.AlphaClipEnable && 
 			meshargs->blendstate.AlphaClipColor == rgb565) {
 			continue;
@@ -876,9 +883,9 @@ inline void drawLines(
 	vec3 v1 = tri.a;
 	vec3 v2 = tri.b;
 	vec3 v3 = tri.c;
-	vec2 uv1 = tri.auv;
-	vec2 uv2 = tri.buv;
-	vec2 uv3 = tri.cuv;
+	vec3 uv1 = tri.auv;
+	vec3 uv2 = tri.buv;
+	vec3 uv3 = tri.cuv;
 	float w1 = tri.aw;
 	float w2 = tri.bw;
 	float w3 = tri.cw;
@@ -913,15 +920,15 @@ inline void drawLines(
 }
 
 // draw from top to bottom 
-inline void fillBottomFlatTriangleuv(
+void fillBottomFlatTriangleuv(
 	DrawMeshArgs* meshargs,
 	TriangleUV tri) {
 	vec3 v1 = tri.a;
 	vec3 v2 = tri.b;
 	vec3 v3 = tri.c;
-	vec2 uv1 = tri.auv;
-	vec2 uv2 = tri.buv;
-	vec2 uv3 = tri.cuv;
+	vec3 uv1 = tri.auv;
+	vec3 uv2 = tri.buv;
+	vec3 uv3 = tri.cuv;
 	float w1 = tri.aw;
 	float w2 = tri.bw;
 	float w3 = tri.cw;
@@ -939,8 +946,8 @@ inline void fillBottomFlatTriangleuv(
 	float invdepthslope1 = (v2.z - v1.z) / (v2.y - v1.y);
 	float invdepthslope2 = (v3.z - v1.z) / (v3.y - v1.y);
 
-	vec2 invuvslope1 = vecdivs2(vecsub2(uv2, uv1), v2.y - v1.y);
-	vec2 invuvslope2 = vecdivs2(vecsub2(uv3, uv1), v3.y - v1.y);
+	vec3 invuvslope1 = vecdivs(vecsub(uv2, uv1), v2.y - v1.y);
+	vec3 invuvslope2 = vecdivs(vecsub(uv3, uv1), v3.y - v1.y);
 
 	float invwslope1 = (w2 - w1) / (v2.y - v1.y);
 	float invwslope2 = (w3 - w1) / (v3.y - v1.y);
@@ -951,8 +958,8 @@ inline void fillBottomFlatTriangleuv(
 	float curz1 = v1.z;
 	float curz2 = v1.z;
 
-	vec2 curuv1 = uv1;
-	vec2 curuv2 = uv1;
+	vec3 curuv1 = uv1;
+	vec3 curuv2 = uv1;
 
 	float curw1 = w1;
 	float curw2 = w1;
@@ -961,20 +968,22 @@ inline void fillBottomFlatTriangleuv(
 	float maxx = maxf(maxf(v1.x, v2.x), v3.x);
 	minx = floorf(minx);
 	maxx = ceilf(maxx);
-
+#if 0
 	float minuvx = minf(minf(uv1.x, uv2.x), uv3.x);
 	float minuvy = minf(minf(uv1.y, uv2.y), uv3.y);
 	float maxuvx = maxf(maxf(uv1.x, uv2.x), uv3.x);
 	float maxuvy = maxf(maxf(uv1.y, uv2.y), uv3.y);
-
+#endif
 	v1.y = (int)clampi((int)v1.y, 0, (int)height - 1);
 	v2.y = (int)clampi((int)v2.y, 0, (int)height - 1);
 
 	for (int scanlineY = (int)v1.y; scanlineY <= (int)ceilf(v2.y); scanlineY++) {
+		#if 0
 		curuv1.x = clampf(curuv1.x, minuvx, maxuvx);
 		curuv2.x = clampf(curuv2.x, minuvx, maxuvx);
 		curuv1.y = clampf(curuv1.y, minuvy, maxuvy);
 		curuv2.y = clampf(curuv2.y, minuvy, maxuvy);
+		#endif
 		curx1 = clampf(curx1, (float)minx, (float)maxx);
 		curx2 = clampf(curx2, (float)minx, (float)maxx);
 		drawscandepthuv(meshargs, scanlineY, (int)curx1, (int)curx2, curz1, curz2, curuv1, curuv2, curw1, curw2);
@@ -982,22 +991,22 @@ inline void fillBottomFlatTriangleuv(
 		curx2 += invslope2;
 		curz1 += invdepthslope1;
 		curz2 += invdepthslope2;
-		curuv1 = vecadd2(curuv1, invuvslope1);
-		curuv2 = vecadd2(curuv2, invuvslope2);
+		curuv1 = vecadd(curuv1, invuvslope1);
+		curuv2 = vecadd(curuv2, invuvslope2);
 		curw1 += invwslope1;
 		curw2 += invwslope2;
 	}
 }
 // draw from bottom to top 
-inline void fillTopFlatTriangleuv(
+void fillTopFlatTriangleuv(
 	DrawMeshArgs* meshargs,
 	TriangleUV tri) {
 	vec3 v1 = tri.a;
 	vec3 v2 = tri.b;
 	vec3 v3 = tri.c;
-	vec2 uv1 = tri.auv;
-	vec2 uv2 = tri.buv;
-	vec2 uv3 = tri.cuv;
+	vec3 uv1 = tri.auv;
+	vec3 uv2 = tri.buv;
+	vec3 uv3 = tri.cuv;
 	float w1 = tri.aw;
 	float w2 = tri.bw;
 	float w3 = tri.cw;
@@ -1015,8 +1024,8 @@ inline void fillTopFlatTriangleuv(
 	float invdepthslope1 = (v3.z - v1.z) / (v3.y - v1.y);
 	float invdepthslope2 = (v3.z - v2.z) / (v3.y - v2.y);
 
-	vec2 invuvslope1 = vecdivs2(vecsub2(uv3, uv1), v3.y - v1.y);
-	vec2 invuvslope2 = vecdivs2(vecsub2(uv3, uv2), v3.y - v2.y);
+	vec3 invuvslope1 = vecdivs(vecsub(uv3, uv1), v3.y - v1.y);
+	vec3 invuvslope2 = vecdivs(vecsub(uv3, uv2), v3.y - v2.y);
 
 	float invwslope1 = (w3 - w1) / (v3.y - v1.y);
 	float invwslope2 = (w3 - w2) / (v3.y - v2.y);
@@ -1027,8 +1036,8 @@ inline void fillTopFlatTriangleuv(
 	float curz1 = v3.z;
 	float curz2 = v3.z;
 
-	vec2 curuv1 = uv3;
-	vec2 curuv2 = uv3;
+	vec3 curuv1 = uv3;
+	vec3 curuv2 = uv3;
 
 	float curw1 = w3;
 	float curw2 = w3;
@@ -1037,29 +1046,31 @@ inline void fillTopFlatTriangleuv(
 	float maxx = maxf(maxf(v1.x, v2.x), v3.x);
 	minx = floorf(minx);
 	maxx = ceilf(maxx);
-
+#if 0
 	float minuvx = minf(minf(uv1.x, uv2.x), uv3.x);
 	float minuvy = minf(minf(uv1.y, uv2.y), uv3.y);
 	float maxuvx = maxf(maxf(uv1.x, uv2.x), uv3.x);
 	float maxuvy = maxf(maxf(uv1.y, uv2.y), uv3.y);
-
+#endif
 	v1.y = (int)clampi((int)v1.y, 0, (int)height - 1);
 	v2.y = (int)clampi((int)v2.y, 0, (int)height - 1);
 
 	for (int scanlineY = (int)ceilf(v3.y); scanlineY > (int)(v1.y); scanlineY--) {
 		curx1 = clampf(curx1, (float)minx, (float)maxx);
 		curx2 = clampf(curx2, (float)minx, (float)maxx);
+		#if 0
 		curuv1.x = clampf(curuv1.x, minuvx, maxuvx);
 		curuv2.x = clampf(curuv2.x, minuvx, maxuvx);
 		curuv1.y = clampf(curuv1.y, minuvy, maxuvy);
 		curuv2.y = clampf(curuv2.y, minuvy, maxuvy);
+		#endif
 		drawscandepthuv(meshargs, scanlineY, (int)curx1, (int)curx2, curz1, curz2, curuv1, curuv2, curw1, curw2);
 		curx1 -= invslope1;
 		curx2 -= invslope2;
 		curz1 -= invdepthslope1;
 		curz2 -= invdepthslope2;
-		curuv1 = vecsub2(curuv1, invuvslope1);
-		curuv2 = vecsub2(curuv2, invuvslope2);
+		curuv1 = vecsub(curuv1, invuvslope1);
+		curuv2 = vecsub(curuv2, invuvslope2);
 		curw1 -= invwslope1;
 		curw2 -= invwslope2;
 	}
@@ -1082,9 +1093,9 @@ inline void rastertriangleuv(
 	vec3 a = tri.a;
 	vec3 b = tri.b;
 	vec3 c = tri.c;
-	vec2 auv = tri.auv;
-	vec2 buv = tri.buv;
-	vec2 cuv = tri.cuv;
+	vec3 auv = tri.auv;
+	vec3 buv = tri.buv;
+	vec3 cuv = tri.cuv;
 	float aw = tri.aw;
 	float bw = tri.bw;
 	float cw = tri.cw;
@@ -1107,9 +1118,10 @@ inline void rastertriangleuv(
 			b.y,
 			depthinterp);
 
-		vec2 duv = vec2C(
+		vec3 duv = vec3C(
 			tri.auv.x * (1.0f - ylerp) + tri.cuv.x * ylerp,
-			tri.auv.y * (1.0f - ylerp) + tri.cuv.y * ylerp);
+			tri.auv.y * (1.0f - ylerp) + tri.cuv.y * ylerp,
+			tri.auv.z * (1.0f - ylerp) + tri.cuv.z * ylerp);
 
 		float dw = tri.aw * (1.0f - ylerp) + tri.cw * ylerp;
 		TriangleUV tria = TriangleUVC(a, b, d, auv, buv, duv, aw, bw, dw);
@@ -1153,7 +1165,7 @@ inline Edge3UV clipplanecodeduv(
 		if (t >= 0.0f && t <= 1.0f) {
 			*clipcode = flippededge ? B : A;
 			edgeout.b = intersect0;
-			edgeout.uvb = vecadd2(vecmuls2(edgeout.uva, (1.0f - t)), vecmuls2(edgeout.uvb, t));
+			edgeout.uvb = vecadd(vecmuls(edgeout.uva, (1.0f - t)), vecmuls(edgeout.uvb, t));
 			edgeout.wb = edgeout.wa * (1.0f - t) + edgeout.wb * t;
 		}
 	}
@@ -1168,7 +1180,7 @@ inline Edge3UV clipplanecodeduv(
 void triangleclipuv(
 	mat44 projmat,
 	vec3* passedverts,
-	vec2* passeduvs,
+	vec3* passeduvs,
 	float* passedws,
 	int* numpassedverts) {
 #define NUM_PLANES 5
@@ -1188,10 +1200,10 @@ void triangleclipuv(
 	};
 
 	vec3 outputpassedvertsarray[MAX_CLIPPED_VERTS];
-	vec2 outputpasseduvsarray[MAX_CLIPPED_VERTS];
+	vec3 outputpasseduvsarray[MAX_CLIPPED_VERTS];
 	float outputpassedwsarray[MAX_CLIPPED_VERTS];
 	vec3* outputpassedverts = outputpassedvertsarray;
-	vec2* outputpasseduvs = outputpasseduvsarray;
+	vec3* outputpasseduvs = outputpasseduvsarray;
 	float* outputpassedws = outputpassedwsarray;
 	// This should be done in clip space but is split between projection and camera space for now
 	// clip the near plane in camera space to simplify
@@ -1249,7 +1261,7 @@ void triangleclipuv(
 		vecscreen.x = x0;
 		vecscreen.y = y0;
 		passedverts[vertexi] = vecscreen;
-		passeduvs[vertexi] = vecdivs2(passeduvs[vertexi], vecproj.w);
+		passeduvs[vertexi] = vecdivs(passeduvs[vertexi], vecproj.w);
 		passedws[vertexi] = 1.0f / vecproj.w;
 		// check only integer bits for any point outside the 0..1 clip which requires more clip testing
 		if ((vecscreen.x < 0.0f || vecscreen.y < 0.0f) ||
@@ -1284,7 +1296,7 @@ void triangleclipuv(
 		swapptr((void**)&passeduvs, (void**)&outputpasseduvs);
 		swapptr((void**)&passedws, (void**)&outputpassedws);
 		memcpy(passedverts, outputpassedverts, sizeof(vec3) * *numpassedverts);
-		memcpy(passeduvs, outputpasseduvs, sizeof(vec2) * *numpassedverts);
+		memcpy(passeduvs, outputpasseduvs, sizeof(vec3) * *numpassedverts);
 		memcpy(passedws, outputpassedws, sizeof(float) * *numpassedverts);
 		// transform the remaining triangles to screen space
 		for (int vertexi = 0; vertexi < *numpassedverts; ++vertexi) {
@@ -1366,7 +1378,7 @@ void triangleclipuv(
 	swapptr((void**)&passeduvs, (void**)&outputpasseduvs);
 	swapptr((void**)&passedws, (void**)&outputpassedws);
 	memcpy(passedverts, outputpassedverts, sizeof(vec3) * *numpassedverts);
-	memcpy(passeduvs, outputpasseduvs, sizeof(vec2) * *numpassedverts);
+	memcpy(passeduvs, outputpasseduvs, sizeof(vec3) * *numpassedverts);
 	memcpy(passedws, outputpassedws, sizeof(float) * *numpassedverts);
 	// transform the remaining triangles to screen space
 	for (int vertexi = 0; vertexi < *numpassedverts; ++vertexi) {
@@ -1439,21 +1451,21 @@ void rastermesh(DrawMeshArgs* meshargs) {
 		vec4 viewtria = matmul44(viewmatrix, vec4C(va.x, va.y, va.z, 1.0f));
 		vec4 viewtrib = matmul44(viewmatrix, vec4C(vb.x, vb.y, vb.z, 1.0f));
 		vec4 viewtric = matmul44(viewmatrix, vec4C(vc.x, vc.y, vc.z, 1.0f));
-		vec2 uva = vec2C(vertices[vertind + 0].uvx, vertices[vertind + 0].uvy);
-		vec2 uvb = vec2C(vertices[vertind + 1].uvx, vertices[vertind + 1].uvy);
-		vec2 uvc = vec2C(vertices[vertind + 2].uvx, vertices[vertind + 2].uvy);
+		vec3 uva = vec3C(vertices[vertind + 0].uvx, vertices[vertind + 0].uvy, vertices[vertind + 0].uvz);
+		vec3 uvb = vec3C(vertices[vertind + 1].uvx, vertices[vertind + 1].uvy, vertices[vertind + 1].uvz);
+		vec3 uvc = vec3C(vertices[vertind + 2].uvx, vertices[vertind + 2].uvy, vertices[vertind + 2].uvz);
 
 		// fixed point starts here
 		vec3 passedverts[MAX_CLIPPED_VERTS];
-		vec2 passeduvs[MAX_CLIPPED_VERTS];
+		vec3 passeduvs[MAX_CLIPPED_VERTS];
 		float passedws[MAX_CLIPPED_VERTS];
 		int numpassedverts = 3;
 		passedverts[0] = vec3C(viewtria.x, viewtria.y, viewtria.z);
 		passedverts[1] = vec3C(viewtrib.x, viewtrib.y, viewtrib.z);
 		passedverts[2] = vec3C(viewtric.x, viewtric.y, viewtric.z);
-		passeduvs[0] = vec2C(uva.x, uva.y);
-		passeduvs[1] = vec2C(uvb.x, uvb.y);
-		passeduvs[2] = vec2C(uvc.x, uvc.y);
+		passeduvs[0] = vec3C(uva.x, uva.y, uva.z);
+		passeduvs[1] = vec3C(uvb.x, uvb.y, uvb.z);
+		passeduvs[2] = vec3C(uvc.x, uvc.y, uvc.z);
 		passedws[0] = 1.0f;
 		passedws[1] = 1.0f;
 		passedws[2] = 1.0f;
