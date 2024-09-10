@@ -196,6 +196,20 @@ class Model:
         MaterialFile.close()
         gc.collect()
         
+    def AddDynamicMeshTriangles(self, PositionArray):
+        if (self.IsDynamicMesh):
+            self.NumVerts += len(PositionArray)
+            for Position in PositionArray:
+                self.Vertices.append(Position[0])
+                self.Vertices.append(Position[1])
+                self.Vertices.append(Position[2])
+                self.Vertices.append(Position[3])
+                self.Vertices.append(Position[4])
+                self.Vertices.append(Position[5])
+            self.ShapeMaterialMap = array.array('I', [self.NumVerts * 10, 0])
+        else:
+            self.SetDynamicMeshTriangles(PositionArray)
+    
     def SetDynamicMeshTriangles(self, PositionArray):
         self.NumVerts = len(PositionArray)
         self.Vertices = array.array('f', range(self.NumVerts*6))

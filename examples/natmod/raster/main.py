@@ -35,8 +35,15 @@ def Main():
             [2.0, 2.0, -1.0, 0.0, 0.0, 1.0],
             [2.0, 1.0, -1.0, 0.0, 1.0, 0.0],
             [1.0, 1.0, -1.0, 1.0, 0.0, 0.0]]
+    addtris = [[2.0, 2.0, -1.0, 1.0, 0.0, 0.0],
+            [2.0, 3.0, -1.0, 0.0, 1.0, 0.0],
+            [3.0, 3.0, -1.0, 0.0, 0.0, 0.0],
+            [3.0, 3.0, -1.0, 0.0, 0.0, 0.0],
+            [3.0, 2.0, -1.0, 0.0, 1.0, 0.0],
+            [2.0, 2.0, -1.0, 1.0, 0.0, 0.0]]
     TestDynamicModel = Model()
     TestDynamicModel.SetDynamicMeshTriangles(tris)
+    TestDynamicModel.AddDynamicMeshTriangles(addtris)
     TestDynamicModel.SetUseVertexColor(True)
     gc.collect()
 
