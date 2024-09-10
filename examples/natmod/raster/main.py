@@ -29,8 +29,12 @@ def Main():
     TestModel.SetAlphaClipState(True, Vector3(1.0, 1.0, 1.0))
     TestModel.LoadModel(MeshFileName, MaterialFileName)
     
+    tris = [[0, 7.5, 0], [1, 6.851854, 0], [0, 7.00266, 1],
+        [1, 6.851854, 0], [1, 6.357321, 1], [0, 7.00266, 1],
+        [0, 7.00266, 1], [1, 6.357321, 1], [0, 6.512616, 2],
+        [1, 6.357321, 1], [1, 5.873226, 2], [0, 6.512616, 2]]
     TestDynamicModel = Model()
-    TestDynamicModel.SetDynamicMeshTriangles([[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [10.0, 0.0, 0.0]])
+    TestDynamicModel.SetDynamicMeshTriangles(tris)
 
     ObjectRot = Matrix44()
     ObjectRot.Identity()

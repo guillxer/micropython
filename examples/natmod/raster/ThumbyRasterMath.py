@@ -194,6 +194,7 @@ class Model:
     def SetDynamicMeshTriangles(self, PositionArray):
         self.NumVerts = len(PositionArray)
         self.Vertices = array.array('f', range(self.NumVerts*5))
+        print(str(self.NumVerts))
         i = 0
         for Position in PositionArray:
             self.Vertices[i * 5 + 0] = Position[0]
@@ -201,10 +202,11 @@ class Model:
             self.Vertices[i * 5 + 2] = Position[2]
             self.Vertices[i * 5 + 3] = 0.0
             self.Vertices[i * 5 + 4] = 0.0
+            print(str(Position))
             i += 1
-        self.ShapeMaterialMap = array.array('I', [0, self.NumVerts * 5])
-        self.GlobalMaterialMap = array.array('I', [0, 0, 0])
-        self.GlobalMaterialData = array.array('H', [0, 0, 0])
+        self.ShapeMaterialMap = array.array('I', [self.NumVerts * 10, 0])
+        self.GlobalMaterialMap = array.array('I', [1, 1, 0])
+        self.GlobalMaterialData = array.array('H', [0, 0, 0, 0])
         self.UseMeshColor = True
         self.IsDynamicMesh = True
     
