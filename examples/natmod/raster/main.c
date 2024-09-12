@@ -141,6 +141,99 @@ void rastermesh(DrawMeshArgs* meshargs);
 
 #if RP2
 
+static mp_obj_t GetFloatsInScratch(
+	mp_obj_fun_bc_t* self,
+	size_t n_args,
+	size_t n_kw,
+	mp_obj_t* args) {
+	int argindex = 0;
+	mp_buffer_info_t writeoutbuffer;
+	mp_get_buffer_raise(args[argindex++], &writeoutbuffer, MP_BUFFER_RW);
+	int scratchaddress = mp_obj_get_int(args[argindex++]);
+	int numfloatsstoread = mp_obj_get_int(args[argindex++]);
+	float* writeout = (float*)writeoutbuffer.buf;
+	float* scratchdatafp = (float*)(void*)scratchaddress;
+	for(int i = 0; i < numfloatsstoread; ++i) {
+		writeout[i] = scratchdatafp[i];
+	}
+	return mp_const_none;
+}
+
+static mp_obj_t GetIntsInScratch(
+	mp_obj_fun_bc_t* self,
+	size_t n_args,
+	size_t n_kw,
+	mp_obj_t* args) {
+	int argindex = 0;
+	mp_buffer_info_t writeoutbuffer;
+	mp_get_buffer_raise(args[argindex++], &writeoutbuffer, MP_BUFFER_RW);
+	int scratchaddress = mp_obj_get_int(args[argindex++]);
+	int numfloatsstoread = mp_obj_get_int(args[argindex++]);
+	int* writeout = (int*)writeoutbuffer.buf;
+	int* scratchdataint = (int*)(void*)scratchaddress;
+	for(int i = 0; i < numfloatsstoread; ++i) {
+		writeout[i] = scratchdataint[i];
+	}
+	return mp_const_none;
+}
+
+static mp_obj_t DrawTrianglesTexScratch(
+	mp_obj_fun_bc_t* self,
+	size_t n_args,
+	size_t n_kw,
+	mp_obj_t* args) {
+	int argindex = 0;
+	mp_buffer_info_t blendstatebuffer;
+	mp_get_buffer_raise(args[argindex++], &blendstatebuffer, MP_BUFFER_RW);
+	mp_buffer_info_t shaderstatebuffer;
+	mp_get_buffer_raise(args[argindex++], &shaderstatebuffer, MP_BUFFER_RW);
+	mp_buffer_info_t colorbuffer;
+	mp_get_buffer_raise(args[argindex++], &colorbuffer, MP_BUFFER_RW);
+	mp_buffer_info_t depthbuffer;
+	mp_get_buffer_raise(args[argindex++], &depthbuffer, MP_BUFFER_RW);
+	mp_buffer_info_t camerapositionbuffer;
+	mp_get_buffer_raise(args[argindex++], &camerapositionbuffer, MP_BUFFER_RW);
+	mp_buffer_info_t viewmatrixbuffer;
+	mp_get_buffer_raise(args[argindex++], &viewmatrixbuffer, MP_BUFFER_RW);
+	mp_buffer_info_t projectionmatrixbuffer;
+	mp_get_buffer_raise(args[argindex++], &projectionmatrixbuffer, MP_BUFFER_RW);
+	int numverts = mp_obj_get_int(args[argindex++]);
+	int vertexaddress = mp_obj_get_int(args[argindex++]);
+	int shapeaddress = mp_obj_get_int(args[argindex++]);
+	int globalmaterialaddress = mp_obj_get_int(args[argindex++]);
+	int globalmaterialdataaddress = mp_obj_get_int(args[argindex++]);
+
+	BlendState blendstate = GetBlendState((float*)blendstatebuffer.buf);
+	ShaderState shaderstate = GetShaderState((float*)shaderstatebuffer.buf);
+	unsigned short* color = (unsigned short*)colorbuffer.buf;
+	float* depth = (float*)depthbuffer.buf;
+	float* cameraposition = (float*)camerapositionbuffer.buf;
+	float* viewmatrix = (float*)viewmatrixbuffer.buf;
+	float* projectionmatrix = (float*)projectionmatrixbuffer.buf;
+	float* vertices = (float*)(void*)vertexaddress;
+	unsigned int* shapematerialmap = (unsigned int*)(void*)shapeaddress;
+	unsigned int* globalmaterialmap = (unsigned int*)(void*)globalmaterialaddress;
+	unsigned short* globalmaterialdata = (unsigned short*)(void*)globalmaterialdataaddress;
+
+	DrawMeshArgs meshargs;
+	meshargs.blendstate = blendstate;
+	meshargs.shaderstate = shaderstate;
+	meshargs.color = color;
+	meshargs.depth = depth;
+	meshargs.cameraposition = cameraposition;
+	meshargs.viewmatrix = viewmatrix;
+	meshargs.projectionmatrix = projectionmatrix;
+	meshargs.numverts = numverts;
+	meshargs.vertices = vertices;
+	meshargs.shapematerialmap = shapematerialmap;		// mapping from triangle ranges to materials
+	meshargs.globalmaterialmap = globalmaterialmap;		// metadata for global materials
+	meshargs.globalmaterialdata = globalmaterialdata; 	// data for global materials
+
+	rastermesh(&meshargs);
+
+	return mp_const_none;
+}
+
 static mp_obj_t DrawTrianglesTex(
 	mp_obj_fun_bc_t* self,
 	size_t n_args,
@@ -194,7 +287,7 @@ static mp_obj_t DrawTrianglesTex(
 	meshargs.projectionmatrix = projectionmatrix;
 	meshargs.numverts = numverts;
 	meshargs.vertices = vertices;
-	meshargs.shapematerialmap = shapematerialmap;				// mapping from triangle ranges to materials
+	meshargs.shapematerialmap = shapematerialmap;		// mapping from triangle ranges to materials
 	meshargs.globalmaterialmap = globalmaterialmap;		// metadata for global materials
 	meshargs.globalmaterialdata = globalmaterialdata; 	// data for global materials
 
@@ -250,12 +343,20 @@ static mp_obj_t ClearDepthBuffer(
 	return mp_const_none;
 }
 
-
 mp_obj_t mpy_init(mp_obj_fun_bc_t* self, size_t n_args, size_t n_kw, mp_obj_t* args) {
 	MP_DYNRUNTIME_INIT_ENTRY
-		mp_store_global(
-			MP_QSTR_DrawTrianglesTex,
-			MP_DYNRUNTIME_MAKE_FUNCTION(DrawTrianglesTex));
+	mp_store_global(
+		MP_QSTR_GetFloatsInScratch,
+		MP_DYNRUNTIME_MAKE_FUNCTION(GetFloatsInScratch));
+	mp_store_global(
+		MP_QSTR_GetIntsInScratch,
+		MP_DYNRUNTIME_MAKE_FUNCTION(GetIntsInScratch));
+	mp_store_global(
+		MP_QSTR_DrawTrianglesTex,
+		MP_DYNRUNTIME_MAKE_FUNCTION(DrawTrianglesTex));
+	mp_store_global(
+		MP_QSTR_DrawTrianglesTexScratch,
+		MP_DYNRUNTIME_MAKE_FUNCTION(DrawTrianglesTexScratch));
 	mp_store_global(
 		MP_QSTR_ClearRenderTarget,
 		MP_DYNRUNTIME_MAKE_FUNCTION(ClearRenderTarget));

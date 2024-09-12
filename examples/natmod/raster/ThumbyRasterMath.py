@@ -151,50 +151,102 @@ class Model:
         self.UseMeshColor = False
         self.UseVertexColor = False
         self.IsDynamicMesh = False
+        self.__ScratchData = bytearray([])
+        self.__StoreInScratch = False
+        self.__ResourceAddress = 0
         
-    def LoadMesh(self, MeshFileName):
+    def __CheckFlush(self):
+        if(len(self.__ScratchData) == 4096):
+            print("checkflush")
+            print(str(len(self.__ScratchData)))
+            GlobalBlockAllocator.WriteScratch(self.__ScratchData)
+            self.__ScratchData = bytearray([])
+            gc.collect()
+    
+    def __ForceFlush(self):
+        if(len(self.__ScratchData) > 0):
+            print("forceflush")
+            print(str(len(self.__ScratchData)))
+            GlobalBlockAllocator.WriteScratch(self.__ScratchData)
+            self.__ScratchData = bytearray([])
+            gc.collect()
+    
+    def __LoadMesh(self, MeshFileName):
         MeshFile = open(MeshFileName, "rb")
-        # All mesh data is dword sized   
-        self.NumVerts = int.from_bytes(MeshFile.read(4), "little")
-        # Load vertices with position + uv
-        j = 0
-        for i in range(0, self.NumVerts * 5, 1):
-            VertElement = MeshFile.read(4)
-            Unpackedverts = struct.unpack('<f', VertElement)[0]
-            self.Vertices.append(Unpackedverts)
-            if(j % 5 == 4):
-                 self.Vertices.append(0.0)
-            j += 1
-        # Load number of shapes
-        self.NumShapes = int.from_bytes(MeshFile.read(4), "little")
-        gc.collect()
-        # Load shape materials
-        for i in range(0, self.NumShapes * 2, 1):
-            ShapeElem = MeshFile.read(4)
-            Unpackedelem = struct.unpack('<I', ShapeElem)[0]
-            self.ShapeMaterialMap.append(Unpackedelem)
+        if(self.__StoreInScratch):
+            self.__MeshResourceAddress = GlobalBlockAllocator.GetBaseAddress()
+            self.NumVerts = int.from_bytes(MeshFile.read(4), "little")
+            j = 0
+            for i in range(self.NumVerts * 5):
+                self.__ScratchData.extend(MeshFile.read(4))
+                self.__CheckFlush()
+                if(j % 5 == 4):
+                    self.__ScratchData.extend(bytearray([0, 0, 0, 0]))
+                    self.__CheckFlush()
+                j += 1
+                
+            self.NumShapes = int.from_bytes(MeshFile.read(4), "little")
+            for i in range(2 * self.NumShapes):
+                self.__ScratchData.extend(MeshFile.read(4))
+                self.__CheckFlush()
+            self.__ForceFlush()
+        else:
+            MeshFile = open(MeshFileName, "rb")
+            # All mesh data is dword sized   
+            self.NumVerts = int.from_bytes(MeshFile.read(4), "little")
+            # Load vertices with position + uv
+            j = 0
+            for i in range(0, self.NumVerts * 5, 1):
+                VertElement = MeshFile.read(4)
+                Unpackedverts = struct.unpack('<f', VertElement)[0]
+                self.Vertices.append(Unpackedverts)
+                if(j % 5 == 4):
+                    self.Vertices.append(0.0)
+                j += 1
+                
+            # Load number of shapes
+            self.NumShapes = int.from_bytes(MeshFile.read(4), "little")
+            gc.collect()
+            # Load shape materials
+            for i in range(0, self.NumShapes * 2, 1):
+                ShapeElem = MeshFile.read(4)
+                Unpackedelem = struct.unpack('<I', ShapeElem)[0]
+                self.ShapeMaterialMap.append(Unpackedelem)
         MeshFile.close()
         gc.collect()
         
-    def LoadMaterial(self, MaterialFileName):
+    def __LoadMaterial(self, MaterialFileName):
         self.HasTexture = True
         MaterialFile = open(MaterialFileName, "rb")
-        # Load number of materials
-        self.NumMaterials = int.from_bytes(MaterialFile.read(4), "little")
-        for i in range(0, self.NumMaterials * 3, 1):
-            MatElem = MaterialFile.read(4)
-            UnpackedElem = struct.unpack('<I', MatElem)[0]
-            self.GlobalMaterialMap.append(UnpackedElem)
-        gc.collect()
-        # Load texture atlas
-        self.TotalPixels = int.from_bytes(MaterialFile.read(4), "little")
-        self.GlobalMaterialData = array.array('H', range(int(self.TotalPixels)))
-        for i in range(0, self.TotalPixels//2, 1):
-            ColorElem = MaterialFile.read(2)
-            UnpackedElem = struct.unpack('<H', ColorElem)[0]
-            self.GlobalMaterialData[i] = UnpackedElem
+        if(self.__StoreInScratch):
+            self.__MaterialResourceAddress = GlobalBlockAllocator.GetBaseAddress()
+            self.NumMaterials = int.from_bytes(MaterialFile.read(4), "little")
+            for i in range(3 * self.NumMaterials):
+                self.__ScratchData.extend(MaterialFile.read(4))
+                self.__CheckFlush()
+            self.TotalPixels = int.from_bytes(MaterialFile.read(4), "little")
+            for i in range(self.TotalPixels):
+                self.__ScratchData.extend(MaterialFile.read(4))
+                self.__CheckFlush()
+            self.__ForceFlush()
+        else:
+            MaterialFile = open(MaterialFileName, "rb")
+            # Load number of materials
+            self.NumMaterials = int.from_bytes(MaterialFile.read(4), "little")
+            for i in range(0, self.NumMaterials * 3, 1):
+                MatElem = MaterialFile.read(4)
+                UnpackedElem = struct.unpack('<I', MatElem)[0]
+                self.GlobalMaterialMap.append(UnpackedElem)
+            gc.collect()
+            # Load texture atlas
+            self.TotalPixels = int.from_bytes(MaterialFile.read(4), "little")
+            self.GlobalMaterialData = array.array('H', range(int(self.TotalPixels)))
+            for i in range(0, self.TotalPixels//2, 1):
+                ColorElem = MaterialFile.read(2)
+                UnpackedElem = struct.unpack('<H', ColorElem)[0]
+                self.GlobalMaterialData[i] = UnpackedElem
         MaterialFile.close()
-        gc.collect()
+        gc.collect()  
         
     def AddDynamicMeshTriangles(self, PositionArray):
         if (self.IsDynamicMesh):
@@ -241,10 +293,12 @@ class Model:
     def SetTransform(self, Transform : Matrix44):
         self.ObjectTransform = Transform
                             
-    def LoadModel(self, MeshFileName, MaterialFileName, StoreInFlash=False):
-        self.LoadMesh(MeshFileName)
-        self.LoadMaterial(MaterialFileName)
-        
+    def LoadModel(self, MeshFileName, MaterialFileName, StoreInScratch=False):
+        self.__ScratchData = bytearray()
+        self.__StoreInScratch = StoreInScratch
+        self.__LoadMesh(MeshFileName)
+        self.__LoadMaterial(MaterialFileName)
+
     def Draw(self, State : RenderState):
         ModelView = Matrix44()
         ViewMat = Matrix44()
@@ -261,55 +315,78 @@ class Model:
             self.MeshColor.x,
             self.MeshColor.y,
             self.MeshColor.z])
-        ThumbyRaster.DrawTrianglesTex(
-            BlendState,
-            ShaderState,
-            State.RenderTarget,
-            State.DepthBuffer,
-            State.CameraPosition,
-            ModelView.Data,
-            State.ProjMatrix,
-            self.NumVerts,
-            self.Vertices,
-            self.ShapeMaterialMap,
-            self.GlobalMaterialMap,
-            self.GlobalMaterialData)
+        if(self.__StoreInScratch):
+            vertexaddr = self.__MeshResourceAddress
+            print(str(vertexaddr))
+            shapeaddr = vertexaddr + 4 * 6 * self.NumVerts
+            materialmapaddr = self.__MaterialResourceAddress
+            materialdataaddr = materialmapaddr + 4 * 3 * self.NumMaterials
+            readout = array.array('f', range(int(1024)))
+            ThumbyRaster.DrawTrianglesTexScratch(
+                BlendState,
+                ShaderState,
+                State.RenderTarget,
+                State.DepthBuffer,
+                State.CameraPosition,
+                ModelView.Data,
+                State.ProjMatrix,
+                self.NumVerts,
+                vertexaddr,
+                shapeaddr,
+                materialmapaddr,
+                materialdataaddr)
+        else:
+            ThumbyRaster.DrawTrianglesTex(
+                BlendState,
+                ShaderState,
+                State.RenderTarget,
+                State.DepthBuffer,
+                State.CameraPosition,
+                ModelView.Data,
+                State.ProjMatrix,
+                self.NumVerts,
+                self.Vertices,
+                self.ShapeMaterialMap,
+                self.GlobalMaterialMap,
+                self.GlobalMaterialData)
 
 # TODO Buffer and flush multiple allocations within a page
 # Configurable number of pages for small block allocation
 class BlockAllocator:
     def __init__(self):
-        self.XIPSize = 1024*1024
+        self.ProgramSize = 1024*1024
         self.PageSize = 4096
         self.ScratchSize = 2*1024*1024
-        self.ScratchMemoryPageStartAddress = self.XIPSize//self.PageSize
-        self.FreePageList = range(self.ScratchSize//self.PageSize)
-        self.AllocationMap = {}
-        self.NextResourceID = 0
-        print(self.FreePageList)
+        # Two MB backwards from the start of fs memory
+        self.ScratchMemoryPageStartAddress = -2 * self.ProgramSize//self.PageSize
+        self.FreePageList = [range(self.ScratchSize//self.PageSize)]
+        #self.AllocationMap = {}
+        self.__NextPageAddress = 0
         
-    def FindStartOfRange(self, NumPages : int):
-        pass
+    def Reset(self):
+        self.__NextPageAddress = 0
         
-    def WriteFirmware(self, Data):
-        #SizeInPages = //4096
-        
-        # Allocate pages
-        
-        # Sort page list by page number
-        self.AllocationMap.sort()
-        
-        #testb = bytearray(4096)
+    def ReadWriteFloatArrayTest(self, TestFloatArray):
+        numfloats = len(TestFloatArray)
         PageAddressStart = self.ScratchMemoryPageStartAddress
-        rp2.Flash().writeblocks(blockoffset, testb)
-        rp2.Flash().readblocks(blockoffset, testb)
+        rp2.Flash().writeblocks(PageAddressStart, TestFloatArray)
+        OutFloatArray = array.array('f', [0.0, 0.0, 0.0, 0.0])
+        rp2.Flash().readblocks(PageAddressStart, OutFloatArray)
+        print(OutFloatArray)
         
-        # TODO Pick a unique resource ID, one that is not in the allocation map
-        ResourceUID = self.NextResourceID
-        self.NextResourceID += 1
-        return ResourceUID
+    def GetBaseAddress(self):
+        return (self.ScratchMemoryPageStartAddress + 512 + 256 + self.__NextPageAddress) * 4096 + 0x10000000
+        
+    def WriteScratch(self, Data : bytearray):
+        PageAddressStart = self.ScratchMemoryPageStartAddress + self.__NextPageAddress
+        rp2.Flash().writeblocks(PageAddressStart, Data)
+        ByteAddress = (self.ScratchMemoryPageStartAddress + 512 + 256 + self.__NextPageAddress) * 4096 + 0x10000000
+        RoundPage = 0
+        if ((len(Data) - ((len(Data) // 4096) * 4096)) > 0):
+            RoundPage = 1
+        self.__NextPageAddress = self.__NextPageAddress + (len(Data) // 4096) + RoundPage
+        return ByteAddress
     
-    # TODO Move pages to consecutive locations to make larger consecutive free blocks
-    # there is no virtual addressing
-    def CompactPages(self):
-        pass
+    
+GlobalBlockAllocator = BlockAllocator()
+

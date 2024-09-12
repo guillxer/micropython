@@ -6,8 +6,7 @@ import engine
 import engine_io
 import engine_draw
 from engine_math import Vector3
-#import random
-#import time
+import time
 
 sys.path.append("/Games/ThumbyRaster")
 os.chdir("/Games/ThumbyRaster")
@@ -18,16 +17,19 @@ import ThumbyRaster
 machine.freq(300 * 1000 * 1000)
 
 def Main():
+    
+    gc.collect()
+    LastTimeMS = time.ticks_ms()
     MainRenderState = RenderState()
-    #MeshFileName = "Peaches_Castle.bin"
-    #MaterialFileName = "Peaches_Castle_global_mat.bin"
-    MeshFileName = "bbb_room.bin"
-    MaterialFileName = "bbb_room_global_mat.bin"
+    MeshFileName = "Peaches_Castle.bin"
+    MaterialFileName = "Peaches_Castle_global_mat.bin"
+    #MeshFileName = "bbb_room.bin"
+    #MaterialFileName = "bbb_room_global_mat.bin"
     #MeshFileName = "dragon.bin"
     #MaterialFileName = "dragon_global_mat.bin"
     TestModel = Model()
     TestModel.SetAlphaClipState(True, Vector3(1.0, 1.0, 1.0))
-    TestModel.LoadModel(MeshFileName, MaterialFileName)
+    TestModel.LoadModel(MeshFileName, MaterialFileName, True)
     
     tris = [[1.0, 1.0, -1.0, 1.0, 0.0, 0.0],
             [1.0, 2.0, -1.0, 0.0, 1.0, 0.0],
@@ -63,7 +65,6 @@ def Main():
     Pitch = 0.0
     
     CameraPosition = Vector3(0.0, -1.0, 0.0)
-    #CameraPosition = Vector3(6.0, -6.0, -12.0)
     
     while(True):
         if engine.tick():
@@ -88,6 +89,13 @@ def Main():
                 Strafe -= MovementScale
             if engine_io.RB.is_pressed:
                 Strafe += MovementScale
+                
+                
+            CurrentTimeMS = time.ticks_ms()
+            TimeDiffMS = CurrentTimeMS - LastTimeMS
+            print(1000.0 / TimeDiffMS)
+            LastTimeMS = time.ticks_ms()
+
                             
             ForwardVector = AngleToForward(CameraAngle)
             RightVector = AngleToRight(CameraAngle)
